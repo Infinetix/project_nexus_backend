@@ -77,4 +77,44 @@ router.post('/add', async (req, res) => {
     }
 });
 
+router.get('/get', async (req, res) => {
+    try {
+        const orgs = await Organization.find();
+        res.status(200).json(orgs);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Internal server error', error });
+    }
+});
+
+router.delete('/delete/:id', async (req, res) => {
+    try {
+        const orgId = req.params.id;
+        const deletedOrg = await Organization.findByIdAndDelete(orgId);
+        if (!deletedOrg) {
+            return res.status(404).json({ message: 'Organization not found' });
+        }
+        res.status(200).json({ message: 'Organization deleted successfully', deletedOrg });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Internal server error', error });
+    }
+});
+
+// update any organisation details
+router.put('/update/:id', async (req, res) => {
+    try {
+        const orgId = req.params.id;
+        const { name, logo, description, type } = req.body;
+        const updatedOrg = await Organization.findByIdAndUpdate(orgId, { name, logo, description, type }, { new: true });
+        if (!updatedOrg) {
+            return res.status(404).json({ message: 'Organization not found' });
+        }
+        res.status(200).json({ message: 'Organization updated successfully', updatedOrg });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Internal server error', error });
+    }
+});
+
 module.exports = router;
