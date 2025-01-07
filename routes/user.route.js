@@ -1,154 +1,127 @@
-// User Authentication Routes
+// Import required modules
 const express = require('express');
-const bcrypt = require('bcrypt');
+const mongoose = require('mongoose');
+const { v4: uuidv4 } = require('uuid');
+const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const User = require('../models/user');
-const multer = require('multer');
-const xlsx = require('xlsx');
-const fs = require('fs');
 
+// Models
+const Organization = require('./models/Organization');
+const User = require('./models/User');
+
+// Initialize Express Router
 const router = express.Router();
 
-// Sign Up Route
-router.post('/signup', async (req, res) => {
-    const { name, email, password } = req.body;
-
+// Middleware to check if the user is admin or manager
+const authenticateManagerOrAdmin = async (req, res, next) => {
     try {
-        // Check if the user already exists
-        const existingUser = await User.findOne({ email });
-        if (existingUser) {
-            return res.status(400).json({ message: 'User already exists' });
+        const token = req.headers.authorization?.split(' ')[1];
+        if (!token) {
+            return res.status(401).json({ message: 'Unauthorized' });
         }
 
-        // Hash the password
-        const hashedPassword = await bcrypt.hash(password, 10);
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const user = await User.findById(decoded.userId);
 
-        // Create a new user
+        if (!user || !['admin', 'manager'].includes(user.role)) {
+            return res.status(403).json({ message: 'Access denied' });
+        }
+
+        req.user = user;
+        next();
+    } catch (error) {
+        res.status(401).json({ message: 'Unauthorized', error });
+    }
+};
+
+// API to add a new user
+router.post('/add-user', authenticateManagerOrAdmin, async (req, res) => {
+    try {
+        const { firstName, lastName, email, role, organizationId } = req.body;
+
+        if (!firstName || !lastName || !email || !role || !organizationId) {
+            return res.status(400).json({ message: 'Missing required fields' });
+        }
+
+        const existingUser = await User.findOne({ email });
+        if (existingUser) {
+            return res.status(400).json({ message: 'User with this email already exists' });
+        }
+
         const newUser = new User({
-            name,
+            firstName,
+            lastName,
+            user_id: uuidv4(),
             email,
-            password: hashedPassword
+            password: await bcrypt.hash(email, 10), // Default password is the email
+            role,
+            organizationId
         });
 
-        await newUser.save();
+        const savedUser = await newUser.save();
 
-        res.status(201).json({ message: 'User created successfully' });
+        res.status(201).json({ message: 'User created successfully', user: savedUser });
     } catch (error) {
-        res.status(500).json({ message: 'Server error', error });
+        console.error(error);
+        res.status(500).json({ message: 'Internal server error', error });
     }
 });
 
-// Login Route
-router.post('/login', async (req, res) => {
-    const { email, password } = req.body;
-
+// API to change password
+router.post('/change-password', async (req, res) => {
     try {
-        // Check if the user exists
+        const { email, currentPassword, newPassword } = req.body;
+
+        if (!email || !currentPassword || !newPassword) {
+            return res.status(400).json({ message: 'Missing required fields' });
+        }
+
         const user = await User.findOne({ email });
         if (!user) {
             return res.status(404).json({ message: 'User not found' });
         }
 
-        // Compare the password
-        const isPasswordValid = await bcrypt.compare(password, user.password);
+        const isPasswordValid = await bcrypt.compare(currentPassword, user.password);
         if (!isPasswordValid) {
-            return res.status(401).json({ message: 'Invalid credentials' });
+            return res.status(400).json({ message: 'Current password is incorrect' });
         }
 
-        // Generate a JWT
-        const token = jwt.sign(
-            { id: user._id, email: user.email, role: user.role },
-            process.env.JWT_SECRET,
-            { expiresIn: '1h' }
-        );
+        user.password = await bcrypt.hash(newPassword, 10);
+        await user.save();
+
+        res.status(200).json({ message: 'Password changed successfully' });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Internal server error', error });
+    }
+});
+
+// API to login
+router.post('/login', async (req, res) => {
+    try {
+        const { email, password } = req.body;
+
+        if (!email || !password) {
+            return res.status(400).json({ message: 'Missing email or password' });
+        }
+
+        const user = await User.findOne({ email });
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        const isPasswordValid = await bcrypt.compare(password, user.password);
+        if (!isPasswordValid) {
+            return res.status(400).json({ message: 'Invalid credentials' });
+        }
+
+        const token = jwt.sign({ userId: user._id, role: user.role, orgId: user.organizationId }, process.env.JWT_SECRET, { expiresIn: '1h' });
 
         res.status(200).json({ message: 'Login successful', token });
     } catch (error) {
-        res.status(500).json({ message: 'Server error', error });
+        console.error(error);
+        res.status(500).json({ message: 'Internal server error', error });
     }
 });
-
-
-// Change Password Route
-router.post('/change-password', async (req, res) => {
-    const { email, oldPassword, newPassword } = req.body;
-
-    try {
-        // Check if the user exists
-        const user = await User.findOne({ email });
-        if (!user) {
-            return res.status(404).json({ message: 'User not found' });
-        }
-
-        // Compare the old password
-        const isPasswordValid = await bcrypt.compare(oldPassword, user.password);
-        if (!isPasswordValid) {
-            return res.status(401).json({ message: 'Old password is incorrect' });
-        }
-
-        // Hash the new password
-        const hashedNewPassword = await bcrypt.hash(newPassword, 10);
-
-        // Update the password
-        user.password = hashedNewPassword;
-        await user.save();
-
-        res.status(200).json({ message: 'Password updated successfully' });
-    } catch (error) {
-        res.status(500).json({ message: 'Server error', error });
-    }
-});
-
-const upload = multer({ dest: 'uploads/' });
-
-router.post('/add-users-from-excel', upload.single('file'), async (req, res) => {
-    try {
-        // Check if a file was uploaded
-        console.log(req.file)
-        if (!req.file) {
-            return res.status(400).json({ message: 'No file uploaded' });
-        }
-
-        // Read the uploaded Excel file
-        const workbook = xlsx.readFile(req.file.path);
-        const sheetName = workbook.SheetNames[0];
-        const sheetData = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
-
-        // Iterate through each row in the sheet
-        const users = await Promise.all(sheetData.map(async (row) => {
-            const { name, email, password } = row;
-
-            // Check if user already exists
-            const existingUser = await User.findOne({ email });
-            if (existingUser) {
-                return null; // Skip existing users
-            }
-
-            // Hash the password
-            const hashedPassword = await bcrypt.hash(password, 10);
-
-            // Create new user object
-            return new User({
-                name,
-                email,
-                password: hashedPassword
-            }).save();
-        }));
-
-        // Filter out null values (existing users)
-        const addedUsers = users.filter((user) => user !== null);
-
-        // Delete the uploaded file
-        fs.unlinkSync(req.file.path);
-
-        res.status(201).json({
-            message: `${addedUsers.length} users added successfully`,
-            users: addedUsers
-        });
-    } catch (error) {
-        res.status(500).json({ message: 'Server error', error });
-    }
-});
-
 
 module.exports = router;
