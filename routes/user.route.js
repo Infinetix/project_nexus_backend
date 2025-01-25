@@ -6,8 +6,8 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
 // Models
-const Organization = require('./models/Organization');
-const User = require('./models/User');
+const Organization = require('../models/organization');
+const User = require('../models/user');
 
 // Initialize Express Router
 const router = express.Router();
@@ -24,7 +24,7 @@ const authenticateManagerOrAdmin = async (req, res, next) => {
         const user = await User.findById(decoded.userId);
 
         if (!user || !['admin', 'manager'].includes(user.role)) {
-            return res.status(403).json({ message: 'Access denied' });
+            return res.status(403).json({ message: `Access denied ${user.role}` });
         }
 
         req.user = user;
