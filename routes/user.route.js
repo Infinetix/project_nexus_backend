@@ -2,7 +2,7 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const { v4: uuidv4 } = require('uuid');
-const bcrypt = require('bcryptjs');
+var bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 
 // Models
