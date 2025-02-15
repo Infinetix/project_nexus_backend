@@ -123,5 +123,39 @@ router.post('/login', async (req, res) => {
         res.status(500).json({ message: 'Internal server error', error });
     }
 });
+router.get('/user-count', async (req, res) => {
+    try {
+      const result = await User.aggregate([
+        {
+          $match: {
+            role: { $nin: ['super-admin', 'nexus-user'] }
+          }
+        },
+        {
+          $group: {
+            _id: '$active',
+            count: { $sum: 1 }
+          }
+        }
+      ]);
+  
+      const counts = result.reduce((acc, item) => {
+        acc[item._id ? 'active' : 'inactive'] = item.count;
+        return acc;
+      }, { active: 0, inactive: 0 });
+  
+      res.status(200).json({
+        success: true,
+        statusCode:7001,
+        counts
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        message: 'Server Error',
+        error: error.message
+      });
+    }
+  });
 
 module.exports = router;

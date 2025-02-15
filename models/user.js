@@ -6,9 +6,10 @@ const UserSchema = new mongoose.Schema({
     user_id: { type: String, required: true, unique: true },
     email: { type: String, required: true, unique: true },
     password: { type: String, required: true },
-    role: { type: String, enum: ['admin', 'manager', 'user'], default: 'user' },
+    role: { type: String, enum: ['admin', 'manager', 'user','super-admin','nexus-user'], default: 'user' },
     organizationId: { type: String, required: true },
     avatar: { type: Number, default: 0 },
+    active:{type: Boolean,default:false},
     createdAt: { type: Date, default: Date.now },
     updatedAt: { type: Date, default: Date.now }
 });

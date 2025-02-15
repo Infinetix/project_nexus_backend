@@ -66,8 +66,10 @@ router.post('/add', async (req, res) => {
         const savedUser = await newUser.save();
 
         // Respond with success message
-        res.status(201).json({
+        res.status(200).json({
+            success:true,
             message: 'Organization and admin user created successfully',
+            statusCode:7001,
             organization: savedOrganization,
             user: savedUser
         });
@@ -80,10 +82,11 @@ router.post('/add', async (req, res) => {
 router.get('/get', async (req, res) => {
     try {
         const orgs = await Organization.find();
-        res.status(200).json(orgs);
+        const user = await User.find()
+        res.status(200).json({success:false,statusCode:7001,org:orgs});
     } catch (error) {
         console.error(error);
-        res.status(500).json({ message: 'Internal server error', error });
+        res.status(500).json({ success:false,  message: 'Internal server error', error });
     }
 });
 
@@ -108,7 +111,7 @@ router.put('/update/:id', async (req, res) => {
         const { name, logo, description, type } = req.body;
         const updatedOrg = await Organization.findByIdAndUpdate(orgId, { name, logo, description, type }, { new: true });
         if (!updatedOrg) {
-            return res.status(404).json({ message: 'Organization not found' });
+            return res.status(404).json({ statusCode:7001, message: 'Organization not found' });
         }
         res.status(200).json({ message: 'Organization updated successfully', updatedOrg });
     } catch (error) {
@@ -116,5 +119,52 @@ router.put('/update/:id', async (req, res) => {
         res.status(500).json({ message: 'Internal server error', error });
     }
 });
+
+router.get('/:org_id', async (req, res) => {
+    try {
+        const { org_id } = req.params;
+
+        // Fetch organization details
+        const organization = await Organization.findOne({ org_id });
+        if (!organization) {
+            return res.status(404).json({ message: 'Organization not found' });
+        }
+
+        // Count active and inactive users for the organization
+        const userCounts = await User.aggregate([
+            { $match: { organizationId: org_id, role: { $nin: ['super-admin', 'nexus-user'] } } },
+            { $group: { _id: '$active', count: { $sum: 1 } } }
+        ]);
+
+        let activeCount = 0;
+        let inactiveCount = 0;
+
+        userCounts.forEach(item => {
+            if (item._id) {
+                activeCount = item.count;
+            } else {
+                inactiveCount = item.count;
+            }
+        });
+
+        // Response with organization details and user counts
+        res.status(200).json({
+            success: true,
+            statusCode: 7001,
+            organization,
+            userCounts: {
+                active: activeCount,
+                inactive: inactiveCount
+            }
+        });
+    } catch (error) {
+        success:false,
+        console.error('Error fetching organization details:', error);
+        res.status(500).json({ message: 'Internal server error', error });
+    }
+});
+
+module.exports = router;
+
 
 module.exports = router;
