@@ -6,6 +6,7 @@ var bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 
 // Models
+const Request = require('../models/request');
 const Organization = require('../models/organization');
 const User = require('../models/user');
 
@@ -117,7 +118,7 @@ router.post('/login', async (req, res) => {
 
         const token = jwt.sign({ userId: user._id, role: user.role, orgId: user.organizationId }, process.env.JWT_SECRET, { expiresIn: '1h' });
 
-        res.status(200).json({ message: 'Login successful', token });
+        res.status(200).json({ message: 'Login successful', token, statusCode:7001 });
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Internal server error', error });
@@ -157,5 +158,50 @@ router.get('/user-count', async (req, res) => {
       });
     }
   });
+
+  router.post("/signup",async(req,res)=>{
+    try {
+        const { firstName, lastName, email, password } = req.body;
+
+        // Check if user already exists
+        const existingUser = await User.findOne({ email });
+        if (existingUser) {
+            return res.status(400).json({ message: 'User already exists' });
+        }
+
+        // Hash the password
+        const hashedPassword = await bcrypt.hash(password, 10);
+
+        // Create new user
+        const newUser = new User({
+            firstName,
+            lastName,
+            user_id:uuidv4(),
+            email,
+            password: hashedPassword,
+            role: "nexus-user",
+            organizationId:"org_nexus",
+            avatar: 1,
+            active: false
+        });
+
+        await newUser.save();
+
+        req.body.role = "nexus-user";
+        const { password:_, ...requestData } = req.body;
+        // Create a request with uuidv4 for req_id
+        const newRequest = new Request({
+            reqName: 'New nexus user signup',
+            reqDesc: requestData,  // Description from request body
+            req_id: uuidv4()   // Generate unique ID
+        });
+
+        await newRequest.save();
+
+        res.status(200).json({ message: 'User registered successfully, request created', userId: newUser._id, statusCode:7001 });
+    } catch (error) {
+        res.status(500).json({ message: 'Error signing up user', error: error.message });
+    }
+  })
 
 module.exports = router;

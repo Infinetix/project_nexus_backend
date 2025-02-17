@@ -18,10 +18,12 @@ mongoose.connection.once('open', () => {
 })
 const user = require('./routes/user.route')
 const org = require('./routes/organization.route')
+const req = require('./routes/request.route')
 
 
 app.use('/user', user)
 app.use('/org', org)
+app.use('/req',req)
 
 app.get('/', (req, res) => {
     res.json("running!")
