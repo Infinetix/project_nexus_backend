@@ -1,6 +1,7 @@
 // Import required modules
 const express = require('express');
 const sendSignupSuccessEmail = require('../util/mailer')
+const validateToken = require("../middleware/auth")
 
 // Models
 const Request = require('../models/request');
@@ -11,8 +12,12 @@ const User = require('../models/user');
 const router = express.Router();
 
 
-router.get('/get', async (req, res) => {
+router.get('/get',validateToken, async (req, res) => {
     try {
+        // Check if the user role is 'super-admin'
+        if (req.user.role !== 'super-admin') {
+            return res.status(403).json({ message: 'You are not authorized to access this resource' });
+        }
         const requests = await Request.find();
         res.status(200).json({success:false,statusCode:7001,requests:requests});
     } catch (error) {
@@ -21,8 +26,12 @@ router.get('/get', async (req, res) => {
     }
 });
 
-router.get("/:req_id", async (req,res)=>{
+router.get("/:req_id", validateToken,  async (req,res)=>{
     try{
+        // Check if the user role is 'super-admin'
+        if (req.user.role !== 'super-admin') {
+            return res.status(403).json({ message: 'You are not authorized to access this resource' });
+        }
         const {req_id} = req.params;
         const request = await Request.find({req_id})
         res.status(200).json({
@@ -39,9 +48,13 @@ router.get("/:req_id", async (req,res)=>{
     }
 
 })
-router.post("/:req_id/:status", async (req, res) => {
+router.post("/:req_id/:status/:type", validateToken,  async (req, res) => {
     try {
-        const { req_id, status } = req.params;
+        // Check if the user role is 'super-admin'
+        if (req.user.role !== 'super-admin') {
+            return res.status(403).json({ message: 'You are not authorized to access this resource' });
+        }
+        const { req_id, status,type } = req.params;
         const request = await Request.findOneAndUpdate(
             { req_id: req_id },
             { status: status },
@@ -56,8 +69,17 @@ router.post("/:req_id/:status", async (req, res) => {
         const { email, firstName } = request.reqDesc;
 
         // Send email on successful signup
-        if (status === 'approved') {
+        if (type == "user" && status === 'approved') {
             await sendSignupSuccessEmail(email, firstName);
+            await User.findOneAndUpdate({ email:Request.reqDesc.email},              // Find the user by user_id
+                { $set: { active: true } },         
+                { new: true } )
+        }
+        if (type == "org" && status === 'approved') {
+            await sendSignupSuccessEmail(email, firstName);
+            await Organization.findOneAndUpdate({ email:Request.reqDesc.email},              // Find the user by user_id
+                { $set: { active: true } },         
+                { new: true } )
         }
 
         res.status(200).json({

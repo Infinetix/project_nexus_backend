@@ -3,20 +3,21 @@ const express = require('express');
 const mongoose = require('mongoose');
 const { v4: uuidv4 } = require('uuid');
 const bcrypt = require('bcrypt');
+const validateToken = require("../middleware/auth")
 
 // Models
 const Organization = require('../models/organization');
 const User = require('../models/user');
+const NexusActivityLog = require('../models/nexusActivityLog')
 
 // Initialize Express Router
 const router = express.Router();
 
 // API to add an organization and create an admin user
-router.post('/add', async (req, res) => {
+router.post('/add', validateToken, async (req, res) => {
     try {
-        // Destructure organization and user details from request body
         const { orgName, logo, description, email, type, compId, adminFirstName, adminLastName, adminEmail } = req.body;
-
+        
         // Validate required fields
         if (!orgName || !email || !compId || !adminFirstName || !adminLastName || !adminEmail) {
             return res.status(400).json({ message: 'Missing required fields' });
@@ -34,45 +35,111 @@ router.post('/add', async (req, res) => {
             return res.status(400).json({ message: 'User with this email already exists' });
         }
 
-        // Generate UUID for organization
+        // Check user role from JWT
+        if (req.user.role === 'super-admin') {
+            // Create new organization
+            const newOrganization = new Organization({
+                name: orgName,
+                logo,
+                description,
+                email,
+                type,
+                compId,
+                org_id: uuidv4()
+            });
 
-        // Create new organization
-        const newOrganization = new Organization({
-            name: orgName,
-            logo,
-            description,
-            email,
-            type,
-            compId,
-            org_id: uuidv4()
-        });
+            const savedOrganization = await newOrganization.save();
 
-        const savedOrganization = await newOrganization.save();
+            // Create new admin user
+            const newUser = new User({
+                firstName: adminFirstName,
+                lastName: adminLastName,
+                user_id: uuidv4(),
+                email: adminEmail,
+                password: adminEmail,  // Ideally, this should be hashed
+                role: 'admin',
+                organizationId: savedOrganization.org_id
+            });
 
-        // Hash admin password
+            const savedUser = await newUser.save();
 
+            // Log activity
+            await NexusActivityLog.create({
+                action: 'Created organization and admin user',
+                performedBy: req.user.email,
+                role: req.user.role,
+                activity_id:uuidv4(),
+                details: {
+                    orgName,
+                    adminEmail
+                }
+            });
 
-        // Create new admin user
-        const newUser = new User({
-            firstName: adminFirstName,
-            lastName: adminLastName,
-            user_id: uuidv4(),
-            email: adminEmail,
-            password: adminEmail,
-            role: 'admin',
-            organizationId: savedOrganization.org_id
-        });
+            // Respond with success message
+            res.status(200).json({
+                success: true,
+                message: 'Organization and admin user created successfully',
+                statusCode: 7001,
+                organization: savedOrganization,
+                user: savedUser
+            });
 
-        const savedUser = await newUser.save();
+        } else if (req.user.role === 'nexus-user') {
+            const newOrganization = new Organization({
+                name: orgName,
+                logo,
+                description,
+                email,
+                type,
+                compId,
+                org_id: uuidv4(),
+                active:false
+            });
 
-        // Respond with success message
-        res.status(200).json({
-            success:true,
-            message: 'Organization and admin user created successfully',
-            statusCode:7001,
-            organization: savedOrganization,
-            user: savedUser
-        });
+            const savedOrganization = await newOrganization.save();
+            // Create request instead of directly creating organization and user
+            const newRequest = new Request({
+                reqType: 'org creation',
+                reqName: 'New organization creation request',
+                reqDesc: {
+                    orgName,
+                    logo,
+                    description,
+                    email,
+                    type,
+                    compId,
+                    adminFirstName,
+                    adminLastName,
+                    adminEmail
+                },
+                req_id: uuidv4()
+            });
+
+            const savedRequest = await newRequest.save();
+
+            // Log activity
+            await NexusActivityLog.create({
+                action: 'Created organization request',
+                performedBy: req.user.email,
+                role: req.user.role,
+                activity_id:uuidv4(),
+                details: {
+                    orgName,
+                    adminEmail
+                }
+            });
+
+            res.status(200).json({
+                success: true,
+                message: 'Organization creation request submitted successfully',
+                statusCode: 7002,
+                request: savedRequest
+            });
+
+        } else {
+            return res.status(403).json({ message: 'Unauthorized user role' });
+        }
+
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Internal server error', error });

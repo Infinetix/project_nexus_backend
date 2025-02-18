@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 
 const RequestSchema = new mongoose.Schema({
+    reqType:{type:String},
     reqName:{type: String},
     reqDesc:{type:JSON},
     status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },

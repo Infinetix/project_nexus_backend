@@ -4,6 +4,7 @@ const mongoose = require('mongoose');
 const { v4: uuidv4 } = require('uuid');
 var bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const validateToken = require("../middleware/auth")
 
 // Models
 const Request = require('../models/request');
@@ -110,13 +111,16 @@ router.post('/login', async (req, res) => {
         if (!user) {
             return res.status(404).json({ message: 'User not found' });
         }
+        if (!user.active) {
+            return res.status(404).json({ message: 'User not approved' });
+        }
 
         const isPasswordValid = await bcrypt.compare(password, user.password);
         if (!isPasswordValid) {
             return res.status(400).json({ message: 'Invalid credentials' });
         }
 
-        const token = jwt.sign({ userId: user._id, role: user.role, orgId: user.organizationId }, process.env.JWT_SECRET, { expiresIn: '1h' });
+        const token = jwt.sign({ userId: user._id, role: user.role, orgId: user.organizationId, email: user.email }, process.env.JWT_SECRET, { expiresIn: '1h' });
 
         res.status(200).json({ message: 'Login successful', token, role: user.role, statusCode:7001 });
     } catch (error) {
@@ -191,6 +195,7 @@ router.get('/user-count', async (req, res) => {
         const { password:_, ...requestData } = req.body;
         // Create a request with uuidv4 for req_id
         const newRequest = new Request({
+            reqType:'new user added',
             reqName: 'New nexus user signup',
             reqDesc: requestData,  // Description from request body
             req_id: uuidv4()   // Generate unique ID
@@ -203,5 +208,69 @@ router.get('/user-count', async (req, res) => {
         res.status(500).json({ message: 'Error signing up user', error: error.message });
     }
   })
+router.get("/nexus-user",validateToken, async (req,res)=>{
+    try{
+        if (req.user.role !== 'super-admin') {
+            return res.status(403).json({ message: 'You are not authorized to access this resource' });
+        }
+        const user = await User.find({role:'nexus-user'})
+        res.status(200).json({
+            success:true,
+            statusCode:7001,
+            user
+        })
+    }
+    catch (error){
+        res.status(500).json({ message: 'Error getting user list', error: error.message });
+    }
+})
+
+router.get("/nexus-user/:user_id", async (req,res)=>{
+    try{      
+        const userId = req.params.user_id;
+        const user = await User.findOne({user_id:userId})
+        res.status(200).json({
+            success:true,
+            statusCode:7001,
+            user
+        })
+    }
+    catch (error){
+        res.status(500).json({ message: 'Error getting user details', error: error.message });
+    }
+})
+router.post("/nexus-user/:user_id/:role", validateToken, async (req, res) => {
+    try {
+        // Check if the user role is 'super-admin'
+        if (req.user.role !== 'super-admin') {
+            return res.status(403).json({ message: 'You are not authorized to access this resource' });
+        }
+
+        const userId = req.params.user_id;
+        const role = req.params.role;
+
+        const user = await User.findOneAndUpdate({ user_id: userId },              // Find the user by user_id
+            { $set: { role: role } },         
+            { new: true } );
+        // Log activity
+        await NexusActivityLog.create({
+            action: 'nexus user role updated',
+            performedBy: req.user.email,
+            role: req.user.role,
+            activity_id:uuidv4(),
+            details:{
+                user:userId,
+                role:role
+            }
+        });
+        res.status(200).json({
+            success: true,
+            statusCode: 7001,
+            user
+        });
+    } catch (error) {
+        res.status(500).json({ message: 'Error getting user list', error: error.message });
+    }
+});
 
 module.exports = router;

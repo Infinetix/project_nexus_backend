@@ -19,11 +19,12 @@ mongoose.connection.once('open', () => {
 const user = require('./routes/user.route')
 const org = require('./routes/organization.route')
 const req = require('./routes/request.route')
-
+const nexusAct = require('./routes/nexusActivity.route')
 
 app.use('/user', user)
 app.use('/org', org)
 app.use('/req',req)
+app.use('/nexAct',nexusAct)
 
 app.get('/', (req, res) => {
     res.json("running!")
